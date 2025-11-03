@@ -4,14 +4,14 @@ from datetime import datetime
 from werkzeug.utils import secure_filename
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
-from google.oauth2.service_account import Credentials
+from google.oauth2.credentials import Credentials
 import pandas as pd
 
 
 def subir_reporte_a_drive(df, idintuni, archivos):
     """
     Crea una carpeta en Drive y sube:
-    - Excel del reporte (subido desde memoria, no archivo físico)
+    - Excel del reporte (subido desde memoria)
     - Todas las fotos en la misma carpeta
 
     Retorna: nombre_carpeta, link_publico
@@ -19,16 +19,22 @@ def subir_reporte_a_drive(df, idintuni, archivos):
 
     try:
         # ============================
-        # AUTENTICACIÓN SERVICE ACCOUNT
+        # AUTENTICACIÓN CON TOKEN OAUTH
         # ============================
-        service_account_str = os.getenv("SERVICE_ACCOUNT_JSON")
-        if not service_account_str:
-            print("[ERROR] No existe variable SERVICE_ACCOUNT_JSON")
+        token_str = os.getenv("GOOGLE_OAUTH_TOKEN")
+        if not token_str:
+            print("[ERROR] Falta la variable GOOGLE_OAUTH_TOKEN en Render.")
             return None, None
 
-        creds = Credentials.from_service_account_info(
-            eval(service_account_str),
-            scopes=["https://www.googleapis.com/auth/drive"]
+        token_data = eval(token_str) if isinstance(token_str, str) else token_str
+
+        creds = Credentials(
+            token=token_data["token"],
+            refresh_token=token_data.get("refresh_token"),
+            token_uri=token_data["token_uri"],
+            client_id=token_data["client_id"],
+            client_secret=token_data.get("client_secret"),
+            scopes=token_data["scopes"]
         )
 
         service = build('drive', 'v3', credentials=creds)
@@ -86,9 +92,11 @@ def subir_reporte_a_drive(df, idintuni, archivos):
             'parents': [carpeta_id]
         }
 
-        media = MediaIoBaseUpload(excel_buffer,
-                                  mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                                  resumable=True)
+        media = MediaIoBaseUpload(
+            excel_buffer,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            resumable=True
+        )
 
         service.files().create(
             body=excel_metadata,
@@ -99,7 +107,7 @@ def subir_reporte_a_drive(df, idintuni, archivos):
         print(f"[OK] Excel subido correctamente a {nombre_carpeta}")
 
         # ============================
-        # SUBIR FOTOS (MISMA LÓGICA TUYA)
+        # SUBIR FOTOS
         # ============================
         for clave in archivos:
             for file in archivos.getlist(clave):
@@ -115,7 +123,7 @@ def subir_reporte_a_drive(df, idintuni, archivos):
                     print(f"[OK] Foto subida: {nombre_seguro}")
 
         # ============================
-        # CREAR LINK PÚBLICO
+        # LINK PÚBLICO
         # ============================
         link_publico = f"https://drive.google.com/drive/folders/{carpeta_id}?usp=sharing"
 
