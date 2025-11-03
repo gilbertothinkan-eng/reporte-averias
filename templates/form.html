@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reporte de Averías</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f7f8;
+      padding: 10px;
+      margin: 0;
+    }
+    .container {
+      max-width: 650px;
+      background: #fff;
+      margin: 0 auto;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+    h2 {
+      text-align: center;
+      margin-top: 0;
+      color: #333;
+    }
+    label {
+      font-weight: bold;
+      display: block;
+      margin-top: 10px;
+    }
+    select, input, textarea {
+      width: 100%;
+      padding: 8px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      margin-top: 5px;
+      font-size: 15px;
+      box-sizing: border-box;
+    }
+    textarea { resize: vertical; }
+    button {
+      margin-top: 15px;
+      background: #0078d4;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 15px;
+      width: 100%;
+    }
+    button:hover { background: #005fa3; }
+
+    .averia-block {
+      border: 1px solid #cfd8dc;
+      border-radius: 10px;
+      padding: 15px;
+      margin-top: 15px;
+      background: #f9fafc;
+    }
+
+    .add-btn {
+      background: #00a854;
+      width: 100%;
+    }
+    .add-btn:hover { background: #008f46; }
+
+    .photo-section {
+      border: 2px dashed #c0c0c0;
+      margin-top: 25px;
+      padding: 15px;
+      background: #f7f9fc;
+      border-radius: 10px;
+      text-align: center;
+    }
+    .photo-section h3 {
+      margin: 0;
+      font-size: 18px;
+      color: #333;
+    }
+    .photo-section p {
+      font-size: 14px;
+      color: #555;
+      margin-bottom: 8px;
+    }
+    .photo-section input {
+      margin-top: 8px;
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>📋 Reporte de Averías</h2>
+
+    <form action="/guardar_reporte" method="POST" enctype="multipart/form-data" id="formAverias">
+
+      <label for="fecha">Fecha</label>
+      <input type="date" id="fecha" name="fecha" required>
+
+      <label for="idintuni">IDIntUni</label>
+      <select id="idintuni" name="idintuni" required>
+        <option value="">Seleccione un traslado</option>
+        {% for i in idintuni %}
+        <option value="{{ i }}">{{ i }}</option>
+        {% endfor %}
+      </select>
+
+      <label for="punto_venta">Punto de venta</label>
+      <input type="text" id="punto_venta" name="punto_venta" required>
+
+      <label for="centro_servicio">Centro de servicio</label>
+      <input type="text" id="centro_servicio" name="centro_servicio" required>
+
+      <label for="responsable">Responsable</label>
+      <input type="text" id="responsable" name="responsable" required>
+
+      <label for="transportadora">Transportadora</label>
+      <input type="text" id="transportadora" name="transportadora" required>
+
+      <label for="placa">Placa</label>
+      <input type="text" id="placa" name="placa" required>
+
+      <div id="averiasContainer">
+        <div class="averia-block">
+          <h3>🔧 Avería 1</h3>
+
+          <label>IDSerie</label>
+          <select class="idserie" name="idserie[]" required>
+            <option value="">Seleccione un IDSerie</option>
+          </select>
+
+          <label>Artículo</label>
+          <input type="text" name="articulo[]" class="articulo" readonly>
+
+          <label>Descripción</label>
+          <textarea name="descripcion[]" class="descripcion" readonly></textarea>
+
+          <label>N° de Reporte de Inconsistencia</label>
+          <input type="text" name="n_reporte[]" required>
+
+          <label>Pieza solicitada</label>
+          <input type="text" name="pieza_solicitada[]">
+
+          <label>Especifique la novedad</label>
+          <textarea name="novedad[]" required></textarea>
+
+          <label>Método de recuperación</label>
+          <input type="text" name="metodo_recuperacion[]">
+
+          <label>Costo de reparación</label>
+          <input type="number" name="costo_reparacion[]" min="0" step="0.01">
+
+          <label>📷 Tomar fotos del daño</label>
+          <input type="file" name="foto1[]" accept="image/*" capture="environment" required>
+          <input type="file" name="foto2[]" accept="image/*" capture="environment">
+          <input type="file" name="foto3[]" accept="image/*" capture="environment">
+        </div>
+      </div>
+
+      <button type="button" class="add-btn" id="addAveria">➕ Agregar otra avería</button>
+
+      <!-- Foto de Soporte (opcional) -->
+      <div class="photo-section">
+        <h3>📸 Foto de Soporte</h3>
+        <p>Adjunte una foto final de soporte (guía o evidencia de entrega).</p>
+        <input type="file" name="foto_soporte" accept="image/*" capture="environment">
+      </div>
+
+      <button type="submit">📨 Enviar Reporte</button>
+    </form>
+  </div>
+
+  <script>
+    document.getElementById('idintuni').addEventListener('change', async function() {
+      const traslado = this.value;
+      const bloques = document.querySelectorAll('.averia-block');
+      const res = await fetch(`/get_series/${traslado}`);
+      const data = await res.json();
+
+      bloques.forEach(b => {
+        const sel = b.querySelector('.idserie');
+        sel.innerHTML = '<option value="">Seleccione un IDSerie</option>';
+        data.forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s;
+          opt.textContent = s;
+          sel.appendChild(opt);
+        });
+      });
+    });
+
+    document.addEventListener('change', async function(e) {
+      if (e.target.classList.contains('idserie')) {
+        const idserie = e.target.value;
+        const res = await fetch(`/get_datos/${idserie}`);
+        const data = await res.json();
+        const bloque = e.target.closest('.averia-block');
+        bloque.querySelector('.articulo').value = data.Articulo || '';
+        bloque.querySelector('.descripcion').value = data.Descripcion || '';
+      }
+    });
+
+    document.getElementById('addAveria').addEventListener('click', function() {
+      const container = document.getElementById('averiasContainer');
+      const blocks = document.querySelectorAll('.averia-block');
+      const newBlock = blocks[0].cloneNode(true);
+
+      newBlock.querySelectorAll('input, textarea, select').forEach(el => {
+        if (el.tagName === 'SELECT') el.selectedIndex = 0;
+        else if (el.type !== 'file') el.value = '';
+      });
+
+      const count = blocks.length + 1;
+      newBlock.querySelector('h3').textContent = `🔧 Avería ${count}`;
+      container.appendChild(newBlock);
+    });
+  </script>
+</body>
+</html>

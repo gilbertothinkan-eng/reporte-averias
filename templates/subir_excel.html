@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Subir Excel - Motos en Tránsito</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: Arial; background:#f4f7f8; text-align:center; margin-top:50px; }
+        form { background:white; padding:30px; border-radius:12px; width:90%; max-width:400px; margin:auto; box-shadow:0 0 10px rgba(0,0,0,0.1); }
+        input, button { width:100%; margin-top:15px; padding:10px; border-radius:8px; }
+        button { background:#0078d4; color:white; border:none; cursor:pointer; }
+        button:hover { background:#005fa3; }
+    </style>
+</head>
+<body>
+    <h2>📤 Subir Excel de Motos en Tránsito</h2>
+    <form method="POST" enctype="multipart/form-data">
+        <input type="file" name="file" accept=".xlsx" required>
+        <button type="submit">Subir Archivo</button>
+    </form>
+</body>
+</html>
