@@ -1,80 +1,125 @@
+import os
 import io
 from datetime import datetime
-from googleapiclient.http import MediaIoBaseUpload
-from auth_drive import obtener_servicio_drive
 from werkzeug.utils import secure_filename
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
+from google.oauth2.service_account import Credentials
 import pandas as pd
 
-# ============================================================
-# SUBIR DIRECTO A GOOGLE DRIVE (SIN ARCHIVOS LOCALES)
-# ============================================================
-
-def _asegurar_carpeta(service, nombre, parent_id=None):
-    q = f"name = '{nombre}' and mimeType = 'application/vnd.google-apps.folder'"
-    if parent_id:
-        q += f" and '{parent_id}' in parents"
-    res = service.files().list(q=q, fields="files(id,name,parents)").execute()
-    files = res.get('files', [])
-    if files:
-        return files[0]['id']
-    meta = {'name': nombre, 'mimeType': 'application/vnd.google-apps.folder'}
-    if parent_id:
-        meta['parents'] = [parent_id]
-    return service.files().create(body=meta, fields='id').execute()['id']
-
-def _subir_bytes(service, carpeta_id, data_bytes, filename, mimetype):
-    media = MediaIoBaseUpload(io.BytesIO(data_bytes), mimetype=mimetype, resumable=False)
-    meta = {'name': filename, 'parents': [carpeta_id]}
-    return service.files().create(body=meta, media_body=media, fields='id').execute()['id']
 
 def subir_reporte_a_drive(df, idintuni, archivos):
     """
-    Crea estructura en Drive y sube:
-    - Excel del reporte (en memoria)
-    - Todas las fotos recibidas (stream, sin guardar en disco)
+    Crea una carpeta en Drive y sube:
+    - Excel del reporte (subido desde memoria, no archivo físico)
+    - Todas las fotos en la misma carpeta
+
     Retorna: nombre_carpeta, link_publico
     """
+
     try:
-        service = obtener_servicio_drive()
+        # ============================
+        # AUTENTICACIÓN SERVICE ACCOUNT
+        # ============================
+        service_account_str = os.getenv("SERVICE_ACCOUNT_JSON")
+        if not service_account_str:
+            print("[ERROR] No existe variable SERVICE_ACCOUNT_JSON")
+            return None, None
 
-        # === Carpeta raíz del proyecto ===
-        root_id = _asegurar_carpeta(service, 'Reportes Averías')
+        creds = Credentials.from_service_account_info(
+            eval(service_account_str),
+            scopes=["https://www.googleapis.com/auth/drive"]
+        )
 
-        # === Subcarpeta por fecha (YYYY-MM-DD) ===
-        hoy = datetime.now().strftime('%Y-%m-%d')
-        fecha_id = _asegurar_carpeta(service, hoy, parent_id=root_id)
+        service = build('drive', 'v3', credentials=creds)
 
-        # === Carpeta del reporte (ID + timestamp) ===
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        nombre_carpeta = f"averia_{idintuni}_{timestamp}"
-        carpeta_id = _asegurar_carpeta(service, nombre_carpeta, parent_id=fecha_id)
+        # ============================
+        # CREAR CARPETA PRINCIPAL
+        # ============================
+        carpeta_principal = 'Reportes Averías'
+        resultado = service.files().list(
+            q=f"name='{carpeta_principal}' and mimeType='application/vnd.google-apps.folder'",
+            spaces='drive'
+        ).execute()
 
-        # === Excel en memoria ===
-        excel_buf = io.BytesIO()
-        with pd.ExcelWriter(excel_buf, engine='xlsxwriter') as writer:
-            df.to_excel(writer, index=False, sheet_name='reporte')
-        excel_bytes = excel_buf.getvalue()
-        _subir_bytes(service, carpeta_id, excel_bytes, f"reporte_averias_{idintuni}.xlsx",
-                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        if not resultado.get('files'):
+            metadata_principal = {
+                'name': carpeta_principal,
+                'mimeType': 'application/vnd.google-apps.folder'
+            }
+            carpeta_principal_id = service.files().create(
+                body=metadata_principal, fields='id'
+            ).execute()['id']
+        else:
+            carpeta_principal_id = resultado['files'][0]['id']
 
-        # === Fotos (stream) ===
-        for key in archivos:
-            # Esperamos claves como 'foto[]' o similares; pueden venir múltiples
-            file_storage = archivos.get(key)
-            if not file_storage:
-                continue
-            # file_storage puede ser lista si es múltiple
-            values = file_storage if isinstance(file_storage, list) else [file_storage]
-            for fs in values:
-                if not getattr(fs, 'filename', ''):
-                    continue
-                nombre_seguro = secure_filename(fs.filename)
-                contenido = fs.stream.read()
-                if not contenido:
-                    continue
-                _subir_bytes(service, carpeta_id, contenido, nombre_seguro, fs.mimetype or 'application/octet-stream')
+        # ============================
+        # CREAR SUBCARPETA DEL REPORTE
+        # ============================
+        nombre_carpeta = f"averia_{idintuni}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        metadata_subcarpeta = {
+            'name': nombre_carpeta,
+            'mimeType': 'application/vnd.google-apps.folder',
+            'parents': [carpeta_principal_id]
+        }
 
+        carpeta_id = service.files().create(
+            body=metadata_subcarpeta,
+            fields='id'
+        ).execute()['id']
+
+        # Hacer carpeta pública
+        service.permissions().create(
+            fileId=carpeta_id,
+            body={"role": "reader", "type": "anyone"},
+        ).execute()
+
+        # ============================
+        # SUBIR EXCEL DESDE MEMORIA
+        # ============================
+        excel_buffer = io.BytesIO()
+        df.to_excel(excel_buffer, index=False)
+        excel_buffer.seek(0)
+
+        excel_metadata = {
+            'name': f"reporte_averias_{idintuni}.xlsx",
+            'parents': [carpeta_id]
+        }
+
+        media = MediaIoBaseUpload(excel_buffer,
+                                  mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                  resumable=True)
+
+        service.files().create(
+            body=excel_metadata,
+            media_body=media,
+            fields='id'
+        ).execute()
+
+        print(f"[OK] Excel subido correctamente a {nombre_carpeta}")
+
+        # ============================
+        # SUBIR FOTOS (MISMA LÓGICA TUYA)
+        # ============================
+        for clave in archivos:
+            for file in archivos.getlist(clave):
+                if file and file.filename:
+                    nombre_seguro = secure_filename(file.filename)
+                    file_buffer = io.BytesIO(file.read())
+                    file_buffer.seek(0)
+
+                    metadata_foto = {'name': nombre_seguro, 'parents': [carpeta_id]}
+                    media = MediaIoBaseUpload(file_buffer, mimetype=file.mimetype, resumable=True)
+
+                    service.files().create(body=metadata_foto, media_body=media, fields='id').execute()
+                    print(f"[OK] Foto subida: {nombre_seguro}")
+
+        # ============================
+        # CREAR LINK PÚBLICO
+        # ============================
         link_publico = f"https://drive.google.com/drive/folders/{carpeta_id}?usp=sharing"
+
+        print(f"[OK] Reporte subido en carpeta: {nombre_carpeta}")
         return nombre_carpeta, link_publico
 
     except Exception as e:
